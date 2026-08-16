@@ -5,6 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.*
@@ -18,6 +19,7 @@ import com.yourteam.todoapp.data.TodoItem
 @Composable
 fun TodoScreen(viewModel: TodoViewModel) {
     var newTodoTitle by remember { mutableStateOf("") }
+    var newTodoDeadline by remember { mutableStateOf("") }
     val searchQuery by viewModel.searchQuery.collectAsState()
     val todos by viewModel.filteredTodos.collectAsState()
 
@@ -51,26 +53,40 @@ fun TodoScreen(viewModel: TodoViewModel) {
         )
 
         // --- Add New Todo Input ---
-        Row(
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedTextField(
                 value = newTodoTitle,
                 onValueChange = { newTodoTitle = it },
                 label = { Text("Add new task") },
-                modifier = Modifier.weight(1f)
+                modifier = Modifier.fillMaxWidth()
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            Button(
-                onClick = {
-                    if (newTodoTitle.isNotBlank()) {
-                        viewModel.addTodo(newTodoTitle)
-                        newTodoTitle = ""
-                    }
-                }
+            
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Add")
+                OutlinedTextField(
+                    value = newTodoDeadline,
+                    onValueChange = { newTodoDeadline = it },
+                    label = { Text("Deadline (e.g., Tomorrow 5 PM)") },
+                    leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = "Deadline") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = {
+                        if (newTodoTitle.isNotBlank()) {
+                            viewModel.addTodo(newTodoTitle, newTodoDeadline)
+                            newTodoTitle = ""
+                            newTodoDeadline = ""
+                        }
+                    }
+                ) {
+                    Text("Add")
+                }
             }
         }
 
@@ -112,11 +128,19 @@ fun TodoItemRow(
                 onCheckedChange = { onToggle() }
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = todo.title,
-                modifier = Modifier.weight(1f),
-                textDecoration = if (todo.isCompleted) TextDecoration.LineThrough else TextDecoration.None
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = todo.title,
+                    textDecoration = if (todo.isCompleted) TextDecoration.LineThrough else TextDecoration.None
+                )
+                if (!todo.deadline.isNullOrEmpty()) {
+                    Text(
+                        text = "Due: ${todo.deadline}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete Todo")
             }
