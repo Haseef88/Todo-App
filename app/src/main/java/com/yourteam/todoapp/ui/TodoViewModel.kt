@@ -1,11 +1,14 @@
 package com.yourteam.todoapp.ui
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import com.yourteam.todoapp.data.TodoItem
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 
 class TodoViewModel : ViewModel() {
     private val _todos = MutableStateFlow<List<TodoItem>>(emptyList())
@@ -13,7 +16,6 @@ class TodoViewModel : ViewModel() {
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    // Dynamically filters todos whenever the list or the search query changes
     val filteredTodos: StateFlow<List<TodoItem>> = combine(_todos, _searchQuery) { todos, query ->
         if (query.isBlank()) {
             todos
@@ -21,8 +23,8 @@ class TodoViewModel : ViewModel() {
             todos.filter { it.title.contains(query, ignoreCase = true) }
         }
     }.stateIn(
-        scope = androidx.lifecycle.viewModelScope,
-        started = kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000),
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
         initialValue = emptyList()
     )
 
@@ -30,9 +32,10 @@ class TodoViewModel : ViewModel() {
         _searchQuery.value = newQuery
     }
 
-    fun addTodo(title: String) {
+    fun addTodo(title: String, deadline: String? = null) {
         if (title.isBlank()) return
-        val newItem = TodoItem(title = title)
+        val cleanDeadline = if (deadline.isNullOrBlank()) null else deadline.trim()
+        val newItem = TodoItem(title = title, deadline = cleanDeadline)
         _todos.value = _todos.value + newItem
     }
 
