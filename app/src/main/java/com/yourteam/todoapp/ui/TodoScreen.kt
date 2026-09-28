@@ -18,11 +18,14 @@ import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -30,19 +33,35 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import com.yourteam.todoapp.data.DEFAULT_REMINDER_MINUTES
 import com.yourteam.todoapp.data.TodoItem
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,18 +69,26 @@ fun TodoScreen(
     todos: List<TodoItem>,
     searchQuery: String,
     onSearchQueryChange: (String) -> Unit,
-    onAddTodo: (title: String, deadline: String?) -> Unit,
+    onAddTodo: (title: String, deadlineMillis: Long?, reminderMinutes: Int) -> Unit,
     onToggleTodo: (String) -> Unit,
     onDeleteTodo: (String) -> Unit,
-    onEditTodo: (id: String, title: String, deadline: String?) -> Unit,
+    onEditTodo: (id: String, title: String, deadlineMillis: Long?, reminderMinutes: Int) -> Unit,
+    onRestoreTodo: (TodoItem) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var titleInput by rememberSaveable { mutableStateOf("") }
-    var deadlineInput by rememberSaveable { mutableStateOf("") }
+    var deadlineInput by rememberSaveable { mutableStateOf<Long?>(null) }
+    var reminderInput by rememberSaveable { mutableStateOf(DEFAULT_REMINDER_MINUTES) }
     var editingTodo by remember { mutableStateOf<TodoItem?>(null) }
     val completedCount = todos.count { it.isCompleted }
 
-    Scaffold(modifier = modifier.fillMaxSize()) { innerPadding ->
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
+    ) { innerPadding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -112,23 +139,29 @@ fun TodoScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    OutlinedTextField(
-                        value = deadlineInput,
+                    DeadlineField(
+                        valueMillis = deadlineInput,
                         onValueChange = { deadlineInput = it },
-                        label = { Text("Deadline (optional)") },
-                        leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = "Deadline") },
-                        singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
                     Button(
                         onClick = {
-                            onAddTodo(titleInput, deadlineInput.ifBlank { null })
+                            onAddTodo(titleInput, deadlineInput, reminderInput)
                             titleInput = ""
-                            deadlineInput = ""
+                            deadlineInput = null
+                            reminderInput = DEFAULT_REMINDER_MINUTES
                         },
                     ) {
                         Text("Add")
                     }
+                }
+
+                if (deadlineInput != null) {
+                    ReminderTimeField(
+                        minutes = reminderInput,
+                        onChange = { reminderInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
 
@@ -157,8 +190,21 @@ fun TodoScreen(
                         TodoCard(
                             todo = todo,
                             onToggle = { onToggleTodo(todo.id) },
-                            onDelete = { onDeleteTodo(todo.id) },
                             onEdit = { editingTodo = todo },
+                            onDelete = {
+                                onDeleteTodo(todo.id)
+                                scope.launch {
+                                    snackbarHostState.currentSnackbarData?.dismiss()
+                                    val result = snackbarHostState.showSnackbar(
+                                        message = "Task deleted",
+                                        actionLabel = "Undo",
+                                        duration = SnackbarDuration.Short,
+                                    )
+                                    if (result == SnackbarResult.ActionPerformed) {
+                                        onRestoreTodo(todo)
+                                    }
+                                }
+                            },
                         )
                     }
                 }
@@ -171,8 +217,8 @@ fun TodoScreen(
         EditTodoDialog(
             todo = todoBeingEdited,
             onDismiss = { editingTodo = null },
-            onConfirm = { newTitle, newDeadline ->
-                onEditTodo(todoBeingEdited.id, newTitle, newDeadline)
+            onConfirm = { newTitle, newDeadline, newReminder ->
+                onEditTodo(todoBeingEdited.id, newTitle, newDeadline, newReminder)
                 editingTodo = null
             },
         )
@@ -183,10 +229,11 @@ fun TodoScreen(
 private fun EditTodoDialog(
     todo: TodoItem,
     onDismiss: () -> Unit,
-    onConfirm: (title: String, deadline: String?) -> Unit,
+    onConfirm: (title: String, deadlineMillis: Long?, reminderMinutes: Int) -> Unit,
 ) {
     var titleInput by remember { mutableStateOf(todo.title) }
-    var deadlineInput by remember { mutableStateOf(todo.deadline ?: "") }
+    var deadlineInput by remember { mutableStateOf(todo.deadlineMillis) }
+    var reminderInput by remember { mutableStateOf(todo.reminderMinutes) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -200,18 +247,23 @@ private fun EditTodoDialog(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                OutlinedTextField(
-                    value = deadlineInput,
+                DeadlineField(
+                    valueMillis = deadlineInput,
                     onValueChange = { deadlineInput = it },
-                    label = { Text("Deadline (optional)") },
-                    singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (deadlineInput != null) {
+                    ReminderTimeField(
+                        minutes = reminderInput,
+                        onChange = { reminderInput = it },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onConfirm(titleInput, deadlineInput.ifBlank { null }) },
+                onClick = { onConfirm(titleInput, deadlineInput, reminderInput) },
                 enabled = titleInput.isNotBlank(),
             ) {
                 Text("Save")
@@ -229,8 +281,8 @@ private fun EditTodoDialog(
 private fun TodoCard(
     todo: TodoItem,
     onToggle: () -> Unit,
-    onDelete: () -> Unit,
     onEdit: () -> Unit,
+    onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val containerColor = if (todo.isCompleted) {
@@ -266,9 +318,9 @@ private fun TodoCard(
                     },
                     textDecoration = if (todo.isCompleted) TextDecoration.LineThrough else TextDecoration.None,
                 )
-                if (!todo.deadline.isNullOrEmpty()) {
+                todo.deadlineMillis?.let { millis ->
                     Text(
-                        text = "Due: ${todo.deadline}",
+                        text = "Due: ${formatDate(millis)} · Reminder ${formatTime(todo.reminderMinutes)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.secondary,
                     )
@@ -286,4 +338,126 @@ private fun TodoCard(
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DeadlineField(
+    valueMillis: Long?,
+    onValueChange: (Long?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var showPicker by remember { mutableStateOf(false) }
+
+    OutlinedTextField(
+        value = valueMillis?.let { formatDate(it) } ?: "",
+        onValueChange = {},
+        readOnly = true,
+        label = { Text("Deadline (optional)") },
+        leadingIcon = {
+            IconButton(onClick = { showPicker = true }) {
+                Icon(Icons.Default.DateRange, contentDescription = "Pick deadline date")
+            }
+        },
+        trailingIcon = {
+            if (valueMillis != null) {
+                IconButton(onClick = { onValueChange(null) }) {
+                    Icon(Icons.Default.Clear, contentDescription = "Clear deadline")
+                }
+            }
+        },
+        singleLine = true,
+        modifier = modifier,
+    )
+
+    if (showPicker) {
+        val pickerState = rememberDatePickerState(initialSelectedDateMillis = valueMillis)
+        DatePickerDialog(
+            onDismissRequest = { showPicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pickerState.selectedDateMillis?.let { onValueChange(it) }
+                        showPicker = false
+                    },
+                    enabled = pickerState.selectedDateMillis != null,
+                ) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }) {
+                    Text("Cancel")
+                }
+            },
+        ) {
+            DatePicker(state = pickerState)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReminderTimeField(
+    minutes: Int,
+    onChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var showPicker by remember { mutableStateOf(false) }
+
+    OutlinedTextField(
+        value = formatTime(minutes),
+        onValueChange = {},
+        readOnly = true,
+        label = { Text("Reminder time") },
+        leadingIcon = {
+            IconButton(onClick = { showPicker = true }) {
+                Icon(Icons.Default.Notifications, contentDescription = "Pick reminder time")
+            }
+        },
+        singleLine = true,
+        modifier = modifier,
+    )
+
+    if (showPicker) {
+        val pickerState = rememberTimePickerState(
+            initialHour = minutes / 60,
+            initialMinute = minutes % 60,
+            is24Hour = android.text.format.DateFormat.is24HourFormat(LocalContext.current),
+        )
+        AlertDialog(
+            onDismissRequest = { showPicker = false },
+            title = { Text("Reminder time") },
+            text = { TimePicker(state = pickerState) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onChange(pickerState.hour * 60 + pickerState.minute)
+                        showPicker = false
+                    },
+                ) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
+}
+
+private fun formatDate(millis: Long): String {
+    val formatter = SimpleDateFormat("EEE, d MMM yyyy", Locale.getDefault())
+    formatter.timeZone = TimeZone.getTimeZone("UTC")
+    return formatter.format(Date(millis))
+}
+
+private fun formatTime(minutes: Int): String {
+    val calendar = Calendar.getInstance().apply {
+        set(Calendar.HOUR_OF_DAY, minutes / 60)
+        set(Calendar.MINUTE, minutes % 60)
+    }
+    return java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(calendar.time)
 }
