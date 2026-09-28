@@ -33,7 +33,8 @@ class TodoRepository(private val context: Context) {
             obj.put("id", todo.id)
             obj.put("title", todo.title)
             obj.put("isCompleted", todo.isCompleted)
-            obj.put("deadline", todo.deadline)
+            todo.deadlineMillis?.let { obj.put("deadlineMillis", it) }
+            obj.put("reminderMinutes", todo.reminderMinutes)
             array.put(obj)
         }
         return array.toString()
@@ -47,7 +48,8 @@ class TodoRepository(private val context: Context) {
                 id = obj.getString("id"),
                 title = obj.getString("title"),
                 isCompleted = obj.getBoolean("isCompleted"),
-                deadline = if (obj.isNull("deadline")) null else obj.getString("deadline"),
+                deadlineMillis = if (obj.has("deadlineMillis")) obj.getLong("deadlineMillis") else null,
+                reminderMinutes = obj.optInt("reminderMinutes", DEFAULT_REMINDER_MINUTES),
             )
         }
     }
