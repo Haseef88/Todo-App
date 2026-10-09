@@ -10,4 +10,6 @@ data class TodoItem(
     val isCompleted: Boolean = false,
     val deadlineMillis: Long? = null,
     val reminderMinutes: Int = DEFAULT_REMINDER_MINUTES,
+    val hasImage: Boolean = false,
+    val imageVersion: Int = 0,
 )

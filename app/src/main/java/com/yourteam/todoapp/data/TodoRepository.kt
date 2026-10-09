@@ -1,56 +1,33 @@
 package com.yourteam.todoapp.data
 
-import android.content.Context
-import androidx.datastore.preferences.core.edit
-import androidx.datastore.preferences.core.stringPreferencesKey
-import androidx.datastore.preferences.preferencesDataStore
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
-import org.json.JSONArray
-import org.json.JSONObject
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
 
-private val Context.todoDataStore by preferencesDataStore(name = "todos")
+/** Talks to the Node/Express API (backed by H2). The server address lives in NetworkConfig. */
+class TodoRepository {
 
-class TodoRepository(private val context: Context) {
+    private val api: TodoApi = Retrofit.Builder()
+        .baseUrl(NetworkConfig.BASE_URL)
+        .addConverterFactory(GsonConverterFactory.create())
+        .build()
+        .create(TodoApi::class.java)
 
-    private val todosKey = stringPreferencesKey("todos_json")
+    suspend fun getTodos(): List<TodoItem> = api.getTodos()
 
-    val todosFlow: Flow<List<TodoItem>> = context.todoDataStore.data.map { preferences ->
-        val json = preferences[todosKey] ?: "[]"
-        parseTodos(json)
+    suspend fun addTodo(todo: TodoItem): TodoItem = api.addTodo(todo)
+
+    suspend fun updateTodo(todo: TodoItem): TodoItem = api.updateTodo(todo.id, todo)
+
+    suspend fun deleteTodo(id: String) {
+        api.deleteTodo(id)
     }
 
-    suspend fun saveTodos(todos: List<TodoItem>) {
-        context.todoDataStore.edit { preferences ->
-            preferences[todosKey] = toJson(todos)
-        }
+    suspend fun uploadImage(id: String, bytes: ByteArray): TodoItem {
+        val body = bytes.toRequestBody("image/jpeg".toMediaType())
+        return api.uploadImage(id, body)
     }
 
-    private fun toJson(todos: List<TodoItem>): String {
-        val array = JSONArray()
-        todos.forEach { todo ->
-            val obj = JSONObject()
-            obj.put("id", todo.id)
-            obj.put("title", todo.title)
-            obj.put("isCompleted", todo.isCompleted)
-            todo.deadlineMillis?.let { obj.put("deadlineMillis", it) }
-            obj.put("reminderMinutes", todo.reminderMinutes)
-            array.put(obj)
-        }
-        return array.toString()
-    }
-
-    private fun parseTodos(json: String): List<TodoItem> {
-        val array = JSONArray(json)
-        return List(array.length()) { index ->
-            val obj = array.getJSONObject(index)
-            TodoItem(
-                id = obj.getString("id"),
-                title = obj.getString("title"),
-                isCompleted = obj.getBoolean("isCompleted"),
-                deadlineMillis = if (obj.has("deadlineMillis")) obj.getLong("deadlineMillis") else null,
-                reminderMinutes = obj.optInt("reminderMinutes", DEFAULT_REMINDER_MINUTES),
-            )
-        }
-    }
+    suspend fun deleteImage(id: String): TodoItem = api.deleteImage(id)
 }
