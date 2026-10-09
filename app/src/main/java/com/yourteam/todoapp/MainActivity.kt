@@ -33,9 +33,12 @@ class MainActivity : ComponentActivity() {
                 val todoViewModel: TodoViewModel = viewModel()
                 val todos by todoViewModel.filteredTodos.collectAsState()
                 val searchQuery by todoViewModel.searchQuery.collectAsState()
+                val errorMessage by todoViewModel.errorMessage.collectAsState()
 
                 TodoScreen(
                     todos = todos,
+                    errorMessage = errorMessage,
+                    onErrorShown = todoViewModel::clearError,
                     searchQuery = searchQuery,
                     onSearchQueryChange = todoViewModel::updateSearchQuery,
                     onAddTodo = todoViewModel::addTodo,
@@ -43,6 +46,8 @@ class MainActivity : ComponentActivity() {
                     onDeleteTodo = todoViewModel::deleteTodo,
                     onEditTodo = todoViewModel::updateTodo,
                     onRestoreTodo = todoViewModel::restoreTodo,
+                    onPickImage = todoViewModel::onImagePicked,
+                    onRemoveImage = todoViewModel::removeImage,
                 )
             }
         }
@@ -69,13 +74,17 @@ private fun TodoScreenPreview() {
     TodoAppTheme {
         TodoScreen(
             todos = previewTodos,
+            errorMessage = null,
+            onErrorShown = {},
             searchQuery = "",
             onSearchQueryChange = {},
-            onAddTodo = { _, _, _ -> },
+            onAddTodo = { _, _, _, _ -> },
             onToggleTodo = {},
             onDeleteTodo = {},
             onEditTodo = { _, _, _, _ -> },
             onRestoreTodo = {},
+            onPickImage = { _, _ -> },
+            onRemoveImage = {},
         )
     }
 }
